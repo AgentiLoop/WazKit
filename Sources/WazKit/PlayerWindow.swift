@@ -63,6 +63,13 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     func windowWillEnterFullScreen(_ notification: Notification) { window?.level = .normal }
     func windowDidExitFullScreen(_ notification: Notification) { applyLevel() }
 
+    /// Full screen like QuickTime: the menu bar, the title bar/toolbar and the Dock all auto-hide
+    /// until the pointer reaches the edge of the screen.
+    func window(_ window: NSWindow,
+                willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions) -> NSApplication.PresentationOptions {
+        proposedOptions.union([.fullScreen, .autoHideToolbar, .autoHideMenuBar, .autoHideDock])
+    }
+
     /// Closing the window (red button, ⌘W) puts the movie back on the TV tab; it keeps playing.
     func windowWillClose(_ notification: Notification) {
         player.isSplitOut = false
