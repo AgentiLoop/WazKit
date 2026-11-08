@@ -142,3 +142,7 @@ the app — Xcode picks the change up without `xcodegen generate`.
 | `Sources/WazKit/PlayerWindow.swift` | The split-out window controller |
 | `Sources/WazKit/WebSignIn.swift` | `WebSignInView`, `WebSignIn.makeWebView()` |
 | `Sources/WazKit/Tiles.swift` | `Tile`, `TileCard`, `Artwork` |
+
+## License
+
+[PolyForm Noncommercial 1.0.0](./LICENSE). You may use, modify, and share this software for noncommercial and personal purposes. Commercial use — including building or distributing commercial versions — is reserved exclusively to AgentiLoop.ai, a Logos InkPen LLC company. Contact AgentiLoop for a commercial license.
