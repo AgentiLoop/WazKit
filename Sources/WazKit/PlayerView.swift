@@ -22,7 +22,7 @@ public struct PlayerView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             Color.black
             if let error = player.error {
                 ContentUnavailableView(error, systemImage: "play.slash")
