@@ -5,7 +5,8 @@
 //  The Mac player with the iPhone player's look: AVKit's own controls are off and these are drawn
 //  over the video instead — ✕, Picture in Picture, AirPlay, full screen and zoom top left, volume top right,
 //  skip back / play / skip ahead in the middle, speed, audio and subtitles bottom right, and the
-//  scrubber along the bottom. Double-click zooms (fill the screen / fit the movie) like iOS's double tap.
+//  scrubber along the bottom. Double-click (or Z) steps through the zoom levels — fit, fill, cinema (no black bars) — and a
+//  trackpad pinch or +/− zooms further.
 //  The controls fade out after 3 seconds without the mouse moving, and come back when it moves.
 //
 
@@ -17,7 +18,8 @@ import Combine
 public struct PlayerContainer: View {
     @ObservedObject var controller: PlayerController
     @StateObject private var state = PlaybackState()
-    @State private var zoomed = false
+    @State private var zoom = Zoom.fit
+    private var zoomed: Bool { zoom != .fit }
     @State private var controlsVisible = true
     @State private var lastActivity = Date()
     @State private var lastMouse = NSEvent.mouseLocation
@@ -28,8 +30,8 @@ public struct PlayerContainer: View {
 
     public var body: some View {
         ZStack {
-            PlayerLayerView(player: controller.player, zoomed: zoomed, state: state,
-                            onDoubleClick: { zoomed.toggle(); poke() }, onKey: key)
+            PlayerLayerView(player: controller.player, zoom: zoom, state: state,
+                            onDoubleClick: { zoom = zoom.next; poke() }, onKey: key)
             controls
                 .opacity(controlsVisible ? 1 : 0)
                 .allowsHitTesting(controlsVisible)
@@ -69,8 +71,7 @@ public struct PlayerContainer: View {
                     AirPlayButton(player: controller.player).frame(width: 28, height: 28).help("AirPlay")
                     button(state.isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                            help: state.isFullScreen ? "Exit Full Screen" : "Full Screen") { state.toggleFullScreen() }
-                    button(zoomed ? "arrow.down.right.and.arrow.up.left.rectangle" : "arrow.up.left.and.arrow.down.right.rectangle",
-                           help: zoomed ? "Fit the Movie (double-click)" : "Zoom to Fill (double-click)") { zoomed.toggle() }
+                    button(zoom.symbol, help: zoom.help) { zoom = zoom.next }
                 }
                 Spacer()
                 capsule {
@@ -194,7 +195,8 @@ public struct PlayerContainer: View {
         .help(help)
     }
 
-    /// Space plays/pauses, ←/→ skip 10 seconds, ↑/↓ volume, F full screen, Z zoom, Esc leaves full screen.
+    /// Space plays/pauses, ←/→ skip 10 seconds, ↑/↓ volume, F full screen, Z next zoom level, +/− zoom in
+    /// and out a step, Esc leaves full screen.
     private func key(_ event: NSEvent) -> Bool {
         poke()
         switch event.keyCode {
@@ -207,7 +209,9 @@ public struct PlayerContainer: View {
         default:
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "f": state.toggleFullScreen()
-            case "z": zoomed.toggle()
+            case "z": zoom = zoom.next
+            case "=", "+": state.view.flatMap { $0 as? VideoLayerView }?.magnify(by: 1.1)
+            case "-": state.view.flatMap { $0 as? VideoLayerView }?.magnify(by: 1 / 1.1)
             default: return false
             }
         }
@@ -376,13 +380,43 @@ final class PlaybackState: ObservableObject {
     }
 }
 
+/// How the picture sits in the window: the whole movie, filling the window, or filling it with the
+/// movie's 2.39:1 cinema band (for wide films delivered with black bars inside a 16:9 video).
+enum Zoom {
+    case fit, fill, cinema
+
+    var next: Zoom {
+        switch self {
+        case .fit: .fill
+        case .fill: .cinema
+        case .cinema: .fit
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .fit: "arrow.up.left.and.arrow.down.right.rectangle"
+        case .fill: "rectangle.expand.vertical"
+        case .cinema: "arrow.down.right.and.arrow.up.left.rectangle"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .fit: "Zoom to Fill (double-click or Z)"
+        case .fill: "Zoom to Cinema, No Black Bars (double-click or Z)"
+        case .cinema: "Fit the Movie (double-click or Z)"
+        }
+    }
+}
+
 /// The video itself (an AVPlayerLayer, so Picture in Picture can be started from our button). It takes
 /// keyboard focus as soon as it is on screen, so space/arrows drive playback instead of the sidebar;
 /// SwiftUI hands focus back to the sidebar after the first attempt, so it keeps claiming it on layout
 /// passes until it holds it, and again whenever the window becomes key or the video is clicked.
 private struct PlayerLayerView: NSViewRepresentable {
     let player: AVPlayer
-    let zoomed: Bool
+    let zoom: Zoom
     let state: PlaybackState
     let onDoubleClick: () -> Void
     let onKey: (NSEvent) -> Bool
@@ -398,13 +432,7 @@ private struct PlayerLayerView: NSViewRepresentable {
     func updateNSView(_ view: VideoLayerView, context: Context) {
         view.onDoubleClick = onDoubleClick
         view.onKey = onKey
-        let gravity: AVLayerVideoGravity = zoomed ? .resizeAspectFill : .resizeAspect
-        if view.playerLayer.videoGravity != gravity {
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.3)
-            view.playerLayer.videoGravity = gravity
-            CATransaction.commit()
-        }
+        view.zoom = zoom
     }
 }
 
@@ -415,13 +443,60 @@ final class VideoLayerView: NSView {
     var onKey: ((NSEvent) -> Bool)?
     private var observers: [NSObjectProtocol] = []
     private var claimsLeft = 0
+    private var rectObserver: NSKeyValueObservation?
+
+    /// The zoom level; changing it starts over from the level's own size (no pinch).
+    var zoom = Zoom.fit {
+        didSet { if zoom != oldValue { pinch = 1; applyZoom(animated: true) } }
+    }
+    /// Pinch (or +/−) on top of the level, 1…4×.
+    private var pinch: CGFloat = 1
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer = playerLayer
-        playerLayer.backgroundColor = NSColor.black.cgColor
+        // The video is a sublayer so it can be scaled past the view's edges (the view clips it).
+        let root = CALayer()
+        root.backgroundColor = NSColor.black.cgColor
+        root.masksToBounds = true
+        layer = root
         playerLayer.videoGravity = .resizeAspect
+        root.addSublayer(playerLayer)
+        // The picture's rect is known once the movie loads; size the zoom to it then.
+        rectObserver = playerLayer.observe(\.videoRect, options: .new) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.applyZoom(animated: false) }
+        }
+    }
+
+    /// Scales the fitted picture: fill covers the window; cinema covers it with the 2.39:1 band in the
+    /// middle of the picture, which crops off black bars baked into a 16:9 video.
+    private func applyZoom(animated: Bool) {
+        let size = bounds.size
+        let picture = playerLayer.videoRect
+        var scale: CGFloat = 1
+        if picture.width > 0, picture.height > 0, size.width > 0, size.height > 0 {
+            switch zoom {
+            case .fit: scale = 1
+            case .fill: scale = max(size.width / picture.width, size.height / picture.height)
+            case .cinema:
+                let band = min(picture.height, picture.width / 2.39)
+                scale = max(size.width / picture.width, size.height / band)
+            }
+        }
+        CATransaction.begin()
+        if animated { CATransaction.setAnimationDuration(0.3) } else { CATransaction.setDisableActions(true) }
+        playerLayer.setAffineTransform(CGAffineTransform(scaleX: scale * pinch, y: scale * pinch))
+        CATransaction.commit()
+    }
+
+    func magnify(by factor: CGFloat) {
+        pinch = min(max(pinch * factor, 1), 4)
+        applyZoom(animated: false)
+    }
+
+    /// Trackpad pinch zooms in and out beyond the level.
+    override func magnify(with event: NSEvent) {
+        magnify(by: 1 + event.magnification)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -466,6 +541,13 @@ final class VideoLayerView: NSView {
     /// The count goes down first and the claim waits for the next turn of the run loop.
     override func layout() {
         super.layout()
+        // Bounds and position, not frame: frame is undefined while the layer has a transform.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playerLayer.bounds = bounds
+        playerLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        CATransaction.commit()
+        applyZoom(animated: false)
         guard claimsLeft > 0, !hasFocus else { claimsLeft = 0; return }
         claimsLeft -= 1
         DispatchQueue.main.async { [weak self] in self?.claimFocus() }
