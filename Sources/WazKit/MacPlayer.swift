@@ -6,7 +6,7 @@
 //  over the video instead — ✕, Picture in Picture, AirPlay, full screen and zoom top left, volume top right,
 //  skip back / play / skip ahead in the middle, speed, audio and subtitles bottom right, and the
 //  scrubber along the bottom. Double-click (or Z) steps through the zoom levels — fit, fill, cinema (no black bars) — and a
-//  trackpad pinch or +/− zooms further.
+//  trackpad pinch or +/− zooms further; in cinema, zooming out trims it for films narrower than 2.39:1.
 //  The controls fade out after 3 seconds without the mouse moving, and come back when it moves.
 //
 
@@ -445,12 +445,21 @@ final class VideoLayerView: NSView {
     private var claimsLeft = 0
     private var rectObserver: NSKeyValueObservation?
 
-    /// The zoom level; changing it starts over from the level's own size (no pinch).
+    /// The zoom level; changing it starts over from the level's own size.
     var zoom = Zoom.fit {
-        didSet { if zoom != oldValue { pinch = 1; applyZoom(animated: true) } }
+        didSet { if zoom != oldValue { pinch = zoom == .cinema ? Self.cinemaTrim : 1; applyZoom(animated: true) } }
     }
-    /// Pinch (or +/−) on top of the level, 1…4×.
+    /// Pinch (or +/−) on top of the level.
     private var pinch: CGFloat = 1
+
+    /// Cinema assumes a 2.39:1 film; films framed at 2.20, 2.00 or 1.85 inside the 16:9 video need less, so
+    /// zooming out (pinch, −) while in cinema trims it, down to plain fill, and is remembered for the next movie.
+    private static var cinemaTrim: CGFloat {
+        get { CGFloat(UserDefaults.standard.object(forKey: "WazKitCinemaTrim") as? Double ?? 1) }
+        set { UserDefaults.standard.set(Double(newValue), forKey: "WazKitCinemaTrim") }
+    }
+    /// The smallest scale the current level may be pinched to, relative to the level's own scale.
+    private var minimumPinch: CGFloat = 1
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -469,18 +478,22 @@ final class VideoLayerView: NSView {
     }
 
     /// Scales the fitted picture: fill covers the window; cinema covers it with the 2.39:1 band in the
-    /// middle of the picture, which crops off black bars baked into a 16:9 video.
+    /// middle of the picture, which crops off black bars baked into a 16:9 video (trimmed as above).
     private func applyZoom(animated: Bool) {
         let size = bounds.size
         let picture = playerLayer.videoRect
         var scale: CGFloat = 1
+        minimumPinch = 1
         if picture.width > 0, picture.height > 0, size.width > 0, size.height > 0 {
+            let fill = max(size.width / picture.width, size.height / picture.height)
             switch zoom {
             case .fit: scale = 1
-            case .fill: scale = max(size.width / picture.width, size.height / picture.height)
+            case .fill: scale = fill
             case .cinema:
                 let band = min(picture.height, picture.width / 2.39)
                 scale = max(size.width / picture.width, size.height / band)
+                minimumPinch = min(1, fill / scale)
+                pinch = max(pinch, minimumPinch)
             }
         }
         CATransaction.begin()
@@ -490,7 +503,8 @@ final class VideoLayerView: NSView {
     }
 
     func magnify(by factor: CGFloat) {
-        pinch = min(max(pinch * factor, 1), 4)
+        pinch = min(max(pinch * factor, minimumPinch), 4)
+        if zoom == .cinema { Self.cinemaTrim = min(pinch, 1) }
         applyZoom(animated: false)
     }
 
