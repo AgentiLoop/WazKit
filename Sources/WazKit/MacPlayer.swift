@@ -6,7 +6,7 @@
 //  over the video instead — ✕, Picture in Picture, AirPlay and full screen top left, volume top right,
 //  skip back / play / skip ahead in the middle, zoom, speed, audio and subtitles bottom right, and the
 //  scrubber along the bottom. Double-click zooms (fill the screen / fit the movie) like iOS's double tap.
-//  The controls hide after a few seconds of playing without the mouse moving.
+//  The controls fade out after 3 seconds without the mouse moving, and come back when it moves.
 //
 
 #if os(macOS)
@@ -20,6 +20,7 @@ public struct PlayerContainer: View {
     @State private var zoomed = false
     @State private var controlsVisible = true
     @State private var lastActivity = Date()
+    @State private var lastMouse = NSEvent.mouseLocation
     /// The scrubber's position while it is being dragged (0…1).
     @State private var scrubbing: Double?
 
@@ -32,19 +33,23 @@ public struct PlayerContainer: View {
             controls
                 .opacity(controlsVisible ? 1 : 0)
                 .allowsHitTesting(controlsVisible)
-                .animation(.easeInOut(duration: 0.25), value: controlsVisible)
+                .animation(.easeInOut(duration: 0.5), value: controlsVisible)
         }
         .background(Color.black)
-        .onContinuousHover { _ in poke() }
         .onAppear { state.attach(controller.player) }
         .onDisappear { state.detach() }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
-            if controller.isPlaying, scrubbing == nil, controlsVisible, Date().timeIntervalSince(lastActivity) > 3 {
+        // Watch the pointer itself: any movement shows the controls; 3 seconds without one fades them
+        // (playing or paused), unless the scrubber is being dragged.
+        .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in
+            let mouse = NSEvent.mouseLocation
+            if mouse != lastMouse {
+                lastMouse = mouse
+                poke()
+            } else if scrubbing == nil, controlsVisible, Date().timeIntervalSince(lastActivity) > 3 {
                 controlsVisible = false
                 NSCursor.setHiddenUntilMouseMoves(true)
             }
         }
-        .onChange(of: controller.isPlaying) { if !controller.isPlaying { poke() } }
     }
 
     private func poke() {
