@@ -54,10 +54,13 @@ public struct NowPlaying: Hashable, Sendable {
 public enum PlayerError: LocalizedError {
     /// A key request the delegate could not serve (no identifier, no certificate, no SPC…).
     case keyRequest(String)
+    /// No FairPlay here (the iOS Simulator).
+    case noFairPlay
 
     public var errorDescription: String? {
         switch self {
         case .keyRequest(let what): "Could not get a playback key (\(what))."
+        case .noFairPlay: "Protected video needs a real iPhone or iPad; the Simulator has no FairPlay."
         }
     }
 }

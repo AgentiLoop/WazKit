@@ -30,7 +30,12 @@ public final class PlayerController: ObservableObject {
         }
     }
 
-    private let keySession = AVContentKeySession(keySystem: .fairPlayStreaming)
+    /// FairPlay exists only on real devices: the iOS Simulator throws on creating the session, so it has none there.
+    #if targetEnvironment(simulator)
+    private let keySession: AVContentKeySession? = nil
+    #else
+    private let keySession: AVContentKeySession? = AVContentKeySession(keySystem: .fairPlayStreaming)
+    #endif
     private let keys: KeyDelegate
     private var observers: [NSKeyValueObservation] = []
     #if os(macOS)
@@ -40,7 +45,7 @@ public final class PlayerController: ObservableObject {
     public init(service: any StreamingService) {
         self.service = service
         keys = KeyDelegate(service: service)
-        keySession.setDelegate(keys, queue: DispatchQueue(label: "wazkit.fairplay"))
+        keySession?.setDelegate(keys, queue: DispatchQueue(label: "wazkit.fairplay"))
         #if os(iOS)
         // Sound with the ring/silent switch on, and keep playing in the background and in Picture in Picture.
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -74,6 +79,7 @@ public final class PlayerController: ObservableObject {
         loadTask = Task {
             do {
                 let playback = try await load()
+                guard let keySession else { throw PlayerError.noFairPlay }
                 let certificate = try await service.certificate(playback.certificateURL)
                 try Task.checkCancellation()
                 keys.prepare(licenseURL: playback.licenseURL, certificate: certificate)
