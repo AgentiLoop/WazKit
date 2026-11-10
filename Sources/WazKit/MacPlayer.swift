@@ -3,8 +3,8 @@
 //  WazKit
 //
 //  The Mac player with the iPhone player's look: AVKit's own controls are off and these are drawn
-//  over the video instead — ✕, Picture in Picture, AirPlay and full screen top left, volume top right,
-//  skip back / play / skip ahead in the middle, zoom, speed, audio and subtitles bottom right, and the
+//  over the video instead — ✕, Picture in Picture, AirPlay, full screen and zoom top left, volume top right,
+//  skip back / play / skip ahead in the middle, speed, audio and subtitles bottom right, and the
 //  scrubber along the bottom. Double-click zooms (fill the screen / fit the movie) like iOS's double tap.
 //  The controls fade out after 3 seconds without the mouse moving, and come back when it moves.
 //
@@ -69,6 +69,8 @@ public struct PlayerContainer: View {
                     AirPlayButton(player: controller.player).frame(width: 28, height: 28).help("AirPlay")
                     button(state.isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                            help: state.isFullScreen ? "Exit Full Screen" : "Full Screen") { state.toggleFullScreen() }
+                    button(zoomed ? "arrow.down.right.and.arrow.up.left.rectangle" : "arrow.up.left.and.arrow.down.right.rectangle",
+                           help: zoomed ? "Fit the Movie (double-click)" : "Zoom to Fill (double-click)") { zoomed.toggle() }
                 }
                 Spacer()
                 capsule {
@@ -92,8 +94,6 @@ public struct PlayerContainer: View {
             HStack {
                 Spacer()
                 capsule {
-                    button(zoomed ? "arrow.down.right.and.arrow.up.left.rectangle" : "arrow.up.left.and.arrow.down.right.rectangle",
-                           help: zoomed ? "Fit the Movie (double-click)" : "Zoom to Fill (double-click)") { zoomed.toggle() }
                     menu("gauge.with.dots.needle.67percent", help: "Playback Speed") {
                         ForEach([0.5, 0.75, 1, 1.25, 1.5, 2] as [Float], id: \.self) { rate in
                             Toggle(rate == 1 ? "Normal" : "\(rate.formatted())×", isOn: Binding(
