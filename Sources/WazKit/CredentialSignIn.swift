@@ -35,6 +35,20 @@ public protocol CredentialSignIn: AnyObject {
     func login(email: String, password: String) async throws -> [SignInProfile]
     /// Picks the profile (with its PIN, if protected) and stores the session.
     func pick(_ profile: SignInProfile, pin: String?) async throws
+    /// The emailed one-time code → the account's profiles, after `login` threw `SignInCodeSent`.
+    func verify(email: String, code: String) async throws -> [SignInProfile]
+}
+
+extension CredentialSignIn {
+    /// Services that never send codes (their `login` never throws `SignInCodeSent`) need no `verify`.
+    public func verify(email: String, code: String) async throws -> [SignInProfile] { throw CancellationError() }
+}
+
+/// `login` throws this when the service signs the account in with an emailed code instead of the
+/// password, and has sent the code: the form asks for it and calls `verify`.
+public struct SignInCodeSent: Error {
+    public let email: String
+    public init(email: String) { self.email = email }
 }
 
 public struct CredentialSignInView: View {
@@ -45,6 +59,9 @@ public struct CredentialSignInView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var email = ""
     @State private var password = ""
+    /// Set while the form asks for the code the service emailed to this address.
+    @State private var codeSentTo: String?
+    @State private var code = ""
     @State private var profiles: [SignInProfile]?
     @State private var pinFor: SignInProfile?
     @State private var pin = ""
@@ -86,6 +103,29 @@ public struct CredentialSignInView: View {
     }
 
     private var credentials: some View {
+        VStack(spacing: 12) {
+            if let sentTo = codeSentTo {
+                Text("\(service.name) emailed a code to \(sentTo).").multilineTextAlignment(.center)
+                TextField("Code", text: $code)
+                    .textContentType(.oneTimeCode)
+                    #if os(iOS)
+                    .keyboardType(.numberPad)
+                    #endif
+                    .onSubmit { Task { await verifyCode() } }
+                Button("Continue") { Task { await verifyCode() } }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(code.isEmpty)
+                Button("Use a Different Email") { codeSentTo = nil }
+                    .buttonStyle(.borderless)
+            } else {
+                passwordFields
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+    }
+
+    private var passwordFields: some View {
         VStack(spacing: 12) {
             TextField("Email", text: $email)
                 .textContentType(.username)
@@ -140,16 +180,33 @@ public struct CredentialSignInView: View {
 
     private func signIn() async {
         guard !email.isEmpty, !password.isEmpty else { return }
+        await signIn { [service, email, password] in
+            try await service.login(email: email.trimmingCharacters(in: .whitespaces), password: password)
+        }
+    }
+
+    private func verifyCode() async {
+        guard !code.isEmpty else { return }
+        await signIn { [service, email, code] in
+            try await service.verify(email: email.trimmingCharacters(in: .whitespaces), code: code.trimmingCharacters(in: .whitespaces))
+        }
+    }
+
+    private func signIn(_ call: @escaping () async throws -> [SignInProfile]) async {
         busy = true
         error = nil
         defer { busy = false }
         do {
-            let profiles = try await service.login(email: email.trimmingCharacters(in: .whitespaces), password: password)
+            let profiles = try await call()
+            codeSentTo = nil
             self.profiles = profiles
             // One profile without a PIN needs no picking.
             if profiles.count == 1, let only = profiles.first, !only.isPinProtected {
                 await pick(only, pin: nil)
             }
+        } catch let sent as SignInCodeSent {
+            codeSentTo = sent.email
+            code = ""
         } catch {
             self.error = error.localizedDescription
         }
