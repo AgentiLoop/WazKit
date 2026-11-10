@@ -111,7 +111,8 @@ public struct PlayerContainer: View {
             .padding(.bottom, 12)
             scrubber
         }
-        .padding(24)
+        // 25 points from the window edges; zoomed, the picture fills the window and they sit at 24 as before.
+        .padding(zoomed ? 24 : 25)
         .foregroundStyle(.white)
         .buttonStyle(.plain)
     }
@@ -141,8 +142,7 @@ public struct PlayerContainer: View {
         .foregroundStyle(.white.opacity(0.8))
         .padding(.horizontal, 24)
         .frame(height: 60)
-        .background(Self.chrome, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+        .chrome(in: Capsule())
     }
 
     @ViewBuilder private func options(_ group: PlaybackState.Group, allowsOff: Bool) -> some View {
@@ -157,15 +157,13 @@ public struct PlayerContainer: View {
 
     // MARK: Pieces
 
-    static let chrome = Color(white: 0.13).opacity(0.85)
 
     private func circle(_ symbol: String, size: CGFloat = 52, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size * 0.42, weight: .medium))
                 .frame(width: size, height: size)
-                .background(Self.chrome, in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.08)))
+                .chrome(in: Circle())
                 .contentShape(Circle())
         }
         .help(help)
@@ -175,8 +173,7 @@ public struct PlayerContainer: View {
         HStack(spacing: 22) { content() }
             .padding(.horizontal, 20)
             .frame(height: 52)
-            .background(Self.chrome, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+            .chrome(in: Capsule())
     }
 
     private func button(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
@@ -220,6 +217,18 @@ public struct PlayerContainer: View {
     static func clock(_ seconds: Double) -> String {
         let s = Int(seconds.isFinite ? seconds : 0)
         return String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+    }
+}
+
+extension View {
+    /// The controls' background: Liquid Glass on macOS 26 and later, a dark translucent fill before that.
+    @ViewBuilder func chrome(in shape: some Shape) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: shape)
+        } else {
+            background(Color(white: 0.13).opacity(0.85), in: shape)
+                .overlay(shape.stroke(.white.opacity(0.08)))
+        }
     }
 }
 
