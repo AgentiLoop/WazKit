@@ -437,7 +437,6 @@ final class VideoLayerView: NSView {
         if state?.pipController == nil { state?.pipController = AVPictureInPictureController(playerLayer: playerLayer) }
         state?.isFullScreen = window.styleMask.contains(.fullScreen)
         claimsLeft = 10
-        claimFocus()
         DispatchQueue.main.async { [weak self] in self?.claimFocus() }
         let center = NotificationCenter.default
         observers = [
@@ -453,11 +452,14 @@ final class VideoLayerView: NSView {
         ]
     }
 
+    /// Never claims focus inside layout itself: taking focus makes SwiftUI rebuild and lay out the window
+    /// synchronously, which re-entered here before the count went down and recursed until the stack ran out.
+    /// The count goes down first and the claim waits for the next turn of the run loop.
     override func layout() {
         super.layout()
-        guard claimsLeft > 0 else { return }
-        claimFocus()
-        if hasFocus { claimsLeft = 0 } else { claimsLeft -= 1 }
+        guard claimsLeft > 0, !hasFocus else { claimsLeft = 0; return }
+        claimsLeft -= 1
+        DispatchQueue.main.async { [weak self] in self?.claimFocus() }
     }
 
     override func mouseDown(with event: NSEvent) {
