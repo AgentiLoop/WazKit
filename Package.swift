@@ -2,7 +2,7 @@
 import PackageDescription
 let package = Package(
     name: "WazKit",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "WazKit", targets: ["WazKit"]),
     ],

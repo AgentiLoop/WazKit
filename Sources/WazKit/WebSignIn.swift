@@ -15,7 +15,11 @@ public enum WebSignIn {
     /// A web view the sites take for Safari: WebKit's default UA has no "Version/… Safari/…" tail, so add Safari's.
     public static func makeWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
+        #if os(macOS)
         config.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
+        #else
+        config.applicationNameForUserAgent = "Version/26.0 Mobile/15E148 Safari/604.1"
+        #endif
         config.websiteDataStore = .default()
         return WKWebView(frame: .zero, configuration: config)
     }
@@ -57,25 +61,39 @@ public struct WebSignInView: View {
                 dismiss()
             }
         }
+        #if os(macOS)
         .frame(width: size.width, height: size.height)
+        #endif
     }
 }
 
-private struct SignInWebView: NSViewRepresentable {
+#if os(macOS)
+private typealias WebViewRepresentable = NSViewRepresentable
+#else
+private typealias WebViewRepresentable = UIViewRepresentable
+#endif
+
+private struct SignInWebView: WebViewRepresentable {
     let url: URL
     let isSignedIn: @MainActor (WKWebView) async -> Bool
     let onSignedIn: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(isSignedIn: isSignedIn, onSignedIn: onSignedIn) }
 
-    func makeNSView(context: Context) -> WKWebView {
+    private func makeWebView(context: Context) -> WKWebView {
         let webView = WebSignIn.makeWebView()
         webView.navigationDelegate = context.coordinator
         webView.load(URLRequest(url: url))
         return webView
     }
 
+    #if os(macOS)
+    func makeNSView(context: Context) -> WKWebView { makeWebView(context: context) }
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+    #else
+    func makeUIView(context: Context) -> WKWebView { makeWebView(context: context) }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    #endif
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         let isSignedIn: @MainActor (WKWebView) async -> Bool

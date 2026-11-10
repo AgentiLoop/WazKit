@@ -48,6 +48,7 @@ public struct PlayerView: View {
 }
 
 /// AVKit's player view: its floating controls include full screen and Picture in Picture.
+#if os(macOS)
 public struct VideoPlayerView: NSViewRepresentable {
     let player: AVPlayer
 
@@ -64,7 +65,29 @@ public struct VideoPlayerView: NSViewRepresentable {
 
     public func updateNSView(_ nsView: AVPlayerView, context: Context) {}
 }
+#else
+public struct VideoPlayerView: UIViewControllerRepresentable {
+    let player: AVPlayer
 
+    public init(player: AVPlayer) { self.player = player }
+
+    public func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.entersFullScreenWhenPlaybackBegins = false
+        controller.exitsFullScreenWhenPlaybackEnds = true
+        return controller
+    }
+
+    public func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== player { controller.player = player }
+    }
+}
+#endif
+
+#if os(macOS)
 /// Takes keyboard focus as soon as it is on screen, so space/arrows drive playback instead of the sidebar.
 /// SwiftUI hands focus back to the sidebar after the first attempt, so it keeps claiming it on every
 /// layout pass until it actually holds it, and again whenever the window becomes key.
@@ -125,3 +148,4 @@ final class FocusingPlayerView: AVPlayerView {
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
     }
 }
+#endif

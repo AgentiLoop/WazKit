@@ -19,20 +19,32 @@ public final class PlayerController: ObservableObject {
     @Published public private(set) var isPlaying = false
     @Published public private(set) var isLoading = false
     @Published public var error: String?
-    /// The movie plays in its own window (PlayerWindowController) instead of the app's TV tab.
+    /// The movie plays in its own window (PlayerWindowController) instead of the app's TV tab (macOS).
     @Published public var isSplitOut = false
-    /// Float on Top: the split-out player window stays above other windows.
-    @Published public var floatsOnTop = false { didSet { windowController.isFloating = floatsOnTop } }
+    /// Float on Top: the split-out player window stays above other windows (macOS).
+    @Published public var floatsOnTop = false {
+        didSet {
+            #if os(macOS)
+            windowController.isFloating = floatsOnTop
+            #endif
+        }
+    }
 
     private let keySession = AVContentKeySession(keySystem: .fairPlayStreaming)
     private let keys: KeyDelegate
     private var observers: [NSKeyValueObservation] = []
+    #if os(macOS)
     private lazy var windowController = PlayerWindowController(player: self)
+    #endif
 
     public init(service: any StreamingService) {
         self.service = service
         keys = KeyDelegate(service: service)
         keySession.setDelegate(keys, queue: DispatchQueue(label: "wazkit.fairplay"))
+        #if os(iOS)
+        // Sound with the ring/silent switch on, and keep playing in the background and in Picture in Picture.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        #endif
         observers = [
             player.observe(\.rate, options: .new) { [weak self] player, _ in
                 MainActor.assumeIsolated {
@@ -49,7 +61,9 @@ public final class PlayerController: ObservableObject {
 
     /// Plays `what`; `load` asks the service for the stream (the app knows which call that is).
     public func play(_ what: NowPlaying, load: @escaping @Sendable () async throws -> Playback) {
+        #if os(macOS)
         _ = windowController
+        #endif
         loadTask?.cancel()
         itemObserver = nil
         player.pause()

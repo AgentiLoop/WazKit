@@ -8,6 +8,7 @@
 //  the app's TV tab.
 //
 
+#if os(macOS)
 import AppKit
 import SwiftUI
 import Combine
@@ -75,3 +76,4 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         player.isSplitOut = false
     }
 }
+#endif

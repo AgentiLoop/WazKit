@@ -77,7 +77,11 @@ public struct CredentialSignInView: View {
             }
         }
         .padding(30)
+        #if os(macOS)
         .frame(width: 420)
+        #else
+        .frame(maxWidth: 420)
+        #endif
         .disabled(busy)
     }
 
@@ -85,6 +89,11 @@ public struct CredentialSignInView: View {
         VStack(spacing: 12) {
             TextField("Email", text: $email)
                 .textContentType(.username)
+                #if os(iOS)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
             SecureField("Password", text: $password)
                 .textContentType(.password)
                 .onSubmit { Task { await signIn() } }

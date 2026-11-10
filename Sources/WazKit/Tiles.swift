@@ -67,6 +67,23 @@ public struct TileCard<Menu: View>: View {
     }
 }
 
+#if os(macOS)
+public typealias PlatformImage = NSImage
+#else
+public typealias PlatformImage = UIImage
+#endif
+
+extension Image {
+    /// An image from an NSImage on the Mac, a UIImage on iOS.
+    public init(platformImage: PlatformImage) {
+        #if os(macOS)
+        self.init(nsImage: platformImage)
+        #else
+        self.init(uiImage: platformImage)
+        #endif
+    }
+}
+
 /// A tile's image, cached. Image servers can answer an error while they render a size they haven't
 /// made yet (and AsyncImage never asks again), so this retries until the image is ready, and reloads
 /// when a tile comes back on screen. Items with no artwork get their name on a plain tile.
@@ -74,9 +91,9 @@ public struct Artwork: View {
     let url: URL?
     let title: String
     let tint: Color
-    @State private var image: NSImage?
+    @State private var image: PlatformImage?
 
-    private static let cache = NSCache<NSURL, NSImage>()
+    private static let cache = NSCache<NSURL, PlatformImage>()
 
     public init(url: URL?, title: String, tint: Color = .blue) {
         self.url = url
@@ -87,7 +104,7 @@ public struct Artwork: View {
     public var body: some View {
         ZStack {
             if let image {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
             } else if url == nil {
                 LinearGradient(colors: [.indigo.opacity(0.8), tint.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 Text(title).font(.title3.bold()).multilineTextAlignment(.center).padding(12)
@@ -102,7 +119,7 @@ public struct Artwork: View {
             for attempt in 0..<6 {
                 if attempt > 0 { try? await Task.sleep(for: .seconds(attempt)) }
                 guard !Task.isCancelled else { return }
-                if let (data, _) = try? await URLSession.shared.data(from: url), let loaded = NSImage(data: data) {
+                if let (data, _) = try? await URLSession.shared.data(from: url), let loaded = PlatformImage(data: data) {
                     Self.cache.setObject(loaded, forKey: url as NSURL)
                     image = loaded
                     return
