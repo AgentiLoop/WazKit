@@ -44,7 +44,7 @@ public struct PlayerView: View {
                 .foregroundStyle(.white)
             } else {
                 #if os(macOS)
-                VideoPlayerView(player: player.player)
+                PlayerContainer(controller: player)
                 #else
                 VideoPlayerView(player: player.player, onClose: onClose)
                 #endif
@@ -54,25 +54,7 @@ public struct PlayerView: View {
     }
 }
 
-/// AVKit's player view: its floating controls include full screen and Picture in Picture.
-#if os(macOS)
-public struct VideoPlayerView: NSViewRepresentable {
-    let player: AVPlayer
-
-    public init(player: AVPlayer) { self.player = player }
-
-    public func makeNSView(context: Context) -> AVPlayerView {
-        let view = FocusingPlayerView()
-        view.player = player
-        view.controlsStyle = .floating
-        view.showsFullScreenToggleButton = true
-        view.allowsPictureInPicturePlayback = true
-        return view
-    }
-
-    public func updateNSView(_ nsView: AVPlayerView, context: Context) {}
-}
-#else
+#if os(iOS)
 /// On iPhone the movie starts in AVKit's own full screen; its ✕ (closing full screen) calls `onClose`.
 /// Leaving full screen for Picture in Picture does not.
 public struct VideoPlayerView: UIViewControllerRepresentable {
@@ -118,69 +100,6 @@ public struct VideoPlayerView: UIViewControllerRepresentable {
                 self.onClose?()
             }
         }
-    }
-}
-#endif
-
-#if os(macOS)
-/// Takes keyboard focus as soon as it is on screen, so space/arrows drive playback instead of the sidebar.
-/// SwiftUI hands focus back to the sidebar after the first attempt, so it keeps claiming it on every
-/// layout pass until it actually holds it, and again whenever the window becomes key.
-final class FocusingPlayerView: AVPlayerView {
-    override var acceptsFirstResponder: Bool { true }
-    private var keyObserver: NSObjectProtocol?
-    private var claimsLeft = 0
-
-    private var hasFocus: Bool {
-        guard let responder = window?.firstResponder as? NSView else { return false }
-        return responder === self || responder.isDescendant(of: self)
-    }
-
-    private func claimFocus() {
-        guard let window, !hasFocus else { return }
-        window.makeFirstResponder(self)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
-        keyObserver = nil
-        guard let window else { return }
-        claimsLeft = 10
-        claimFocus()
-        DispatchQueue.main.async { [weak self] in self?.claimFocus() }
-        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
-            self?.claimFocus()
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        hideLoadingIndicators(in: self)
-        guard claimsLeft > 0 else { return }
-        claimFocus()
-        if hasFocus { claimsLeft = 0 } else { claimsLeft -= 1 }
-    }
-
-    /// AVKit draws its own buffering spinner inside the player view; walk the hierarchy and hide it.
-    private func hideLoadingIndicators(in view: NSView) {
-        for sub in view.subviews {
-            let name = String(describing: type(of: sub))
-            if sub is NSProgressIndicator || name.contains("Loading") || name.contains("Spinner") || name.contains("ProgressIndicator") {
-                sub.isHidden = true
-            } else {
-                hideLoadingIndicators(in: sub)
-            }
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        claimFocus()
-        super.mouseDown(with: event)
-    }
-
-    deinit {
-        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
     }
 }
 #endif

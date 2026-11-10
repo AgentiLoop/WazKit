@@ -2,29 +2,11 @@
 //  MacWindow.swift
 //  WazKit
 //
-//  The Mac apps' main window pieces: the TV tab's player view, making the `Window` scene full-screen
-//  capable, and hiding the toolbar in full screen.
+//  The Mac apps' main window pieces: making the `Window` scene full-screen capable, and hiding the
+//  toolbar in full screen. (The TV tab's player, PlayerContainer, is in MacPlayer.swift.)
 //
 #if os(macOS)
 import SwiftUI
-import AVKit
-/// IPTVee's AVPlayerView wrapper, singleton removed: the AVPlayer is passed in
-/// (PlayerController owns it) instead of grabbed from a shared PlayerViewObservable.
-/// Fullscreen and picture-in-picture come from AVKit's floating controls.
-public struct PlayerContainer: NSViewRepresentable {
-    let player: AVPlayer
-    public init(player: AVPlayer) { self.player = player }
-    public func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.player = player
-        view.layer?.backgroundColor = .clear
-        view.controlsStyle = .floating
-        view.showsFullScreenToggleButton = true
-        view.allowsPictureInPicturePlayback = true
-        return view
-    }
-    public func updateNSView(_ nsView: AVPlayerView, context: Context) {}
-}
 /// The `Window` scene's NSWindow is not full-screen capable by default, which leaves
 /// View > Enter Full Screen (and AVPlayerView's fullscreen button) disabled.
 public struct FullScreenCapable: NSViewRepresentable {
