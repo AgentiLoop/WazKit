@@ -13,12 +13,15 @@ public struct PlayerView: View {
     @ObservedObject var player: PlayerController
     let inWindow: Bool
     let title: String
+    let onClose: (() -> Void)?
 
     /// `title` is the navigation title while nothing is playing (the app's name, say).
-    public init(player: PlayerController, inWindow: Bool, title: String = "") {
+    /// `onClose` (iPhone): the movie starts in AVKit's full screen, and its ✕ calls this.
+    public init(player: PlayerController, inWindow: Bool, title: String = "", onClose: (() -> Void)? = nil) {
         self.player = player
         self.inWindow = inWindow
         self.title = title
+        self.onClose = onClose
     }
 
     public var body: some View {
@@ -40,7 +43,11 @@ public struct PlayerView: View {
                 }
                 .foregroundStyle(.white)
             } else {
+                #if os(macOS)
                 VideoPlayerView(player: player.player)
+                #else
+                VideoPlayerView(player: player.player, onClose: onClose)
+                #endif
             }
         }
         .navigationTitle(player.current?.title ?? title)
@@ -66,23 +73,51 @@ public struct VideoPlayerView: NSViewRepresentable {
     public func updateNSView(_ nsView: AVPlayerView, context: Context) {}
 }
 #else
+/// On iPhone the movie starts in AVKit's own full screen; its ✕ (closing full screen) calls `onClose`.
+/// Leaving full screen for Picture in Picture does not.
 public struct VideoPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
+    let onClose: (() -> Void)?
 
-    public init(player: AVPlayer) { self.player = player }
+    public init(player: AVPlayer, onClose: (() -> Void)? = nil) {
+        self.player = player
+        self.onClose = onClose
+    }
+
+    public func makeCoordinator() -> Coordinator { Coordinator(onClose: onClose) }
 
     public func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
+        controller.delegate = context.coordinator
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.entersFullScreenWhenPlaybackBegins = false
+        controller.entersFullScreenWhenPlaybackBegins = onClose != nil
         controller.exitsFullScreenWhenPlaybackEnds = true
         return controller
     }
 
     public func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
         if controller.player !== player { controller.player = player }
+        context.coordinator.onClose = onClose
+    }
+
+    public final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        var onClose: (() -> Void)?
+        private var inPictureInPicture = false
+
+        init(onClose: (() -> Void)?) { self.onClose = onClose }
+
+        public func playerViewControllerWillStartPictureInPicture(_ controller: AVPlayerViewController) { inPictureInPicture = true }
+        public func playerViewControllerDidStopPictureInPicture(_ controller: AVPlayerViewController) { inPictureInPicture = false }
+
+        public func playerViewController(_ controller: AVPlayerViewController,
+                                         willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator) {
+            coordinator.animate(alongsideTransition: nil) { [weak self] context in
+                guard let self, !context.isCancelled, !self.inPictureInPicture else { return }
+                self.onClose?()
+            }
+        }
     }
 }
 #endif
