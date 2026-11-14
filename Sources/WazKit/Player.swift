@@ -62,22 +62,36 @@ public final class PlayerController: ObservableObject {
     }
 
     private var loadTask: Task<Void, Never>?
-    private var itemObserver: NSKeyValueObservation?
+    private var itemWatch: Set<AnyCancellable> = []
+    /// Asks the service for the current stream again (what `play` was given).
+    private var reload: (@Sendable () async throws -> Playback)?
+    /// Restreams in a row; a stream that then plays for a minute clears the count.
+    private var restreams = 0
+    private var started = Date()
 
     /// Plays `what`; `load` asks the service for the stream (the app knows which call that is).
     public func play(_ what: NowPlaying, load: @escaping @Sendable () async throws -> Playback) {
         #if os(macOS)
         _ = windowController
         #endif
+        current = what
+        reload = load
+        restreams = 0
+        start(load)
+    }
+
+    /// Loads the stream and plays it. `position` is set when restreaming: where the stopped stream was, in seconds.
+    private func start(_ load: @escaping @Sendable () async throws -> Playback, restreamingAt position: Double? = nil) {
         loadTask?.cancel()
-        itemObserver = nil
+        itemWatch = []
         player.pause()
         player.replaceCurrentItem(with: nil)
-        current = what
         isLoading = true
         error = nil
         loadTask = Task {
             do {
+                // The first restream is immediate; the next ones give the network a little longer each time.
+                if restreams > 1 { try await Task.sleep(for: .seconds(5 * (restreams - 1))) }
                 let playback = try await load()
                 guard let keySession else { throw PlayerError.noFairPlay }
                 let certificate = try await service.certificate(playback.certificateURL)
@@ -88,12 +102,20 @@ public final class PlayerController: ObservableObject {
                 let playerItem = AVPlayerItem(asset: asset)
                 watch(playerItem)
                 player.replaceCurrentItem(with: playerItem)
-                if playback.resume > 0 {
-                    player.seek(to: CMTime(seconds: playback.resume, preferredTimescale: 1000), completionHandler: { _ in })
+                started = Date()
+                // A restream carries on where the stream stopped; live rejoins at the live edge.
+                var resume = playback.resume
+                if let position, position > 0, !playback.isLive { resume = position }
+                if resume > 0 {
+                    player.seek(to: CMTime(seconds: resume, preferredTimescale: 1000), completionHandler: { _ in })
                 }
                 player.play()
             } catch {
                 if Task.isCancelled { return }
+                if let position {
+                    restream(at: position, because: error.localizedDescription)
+                    return
+                }
                 self.error = error.localizedDescription
                 current = nil
             }
@@ -104,7 +126,8 @@ public final class PlayerController: ObservableObject {
     public func stop() {
         loadTask?.cancel()
         loadTask = nil
-        itemObserver = nil
+        itemWatch = []
+        reload = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         current = nil
@@ -112,16 +135,51 @@ public final class PlayerController: ObservableObject {
         updateNowPlayingInfo()
     }
 
-    /// A failed item (bad key, dead stream) would otherwise leave the player spinning forever.
+    /// A stream that stops by itself is restreamed: the item failed (bad key, dead stream, network gone),
+    /// or it stalled and was still waiting ten seconds later.
     private func watch(_ item: AVPlayerItem) {
-        itemObserver = item.observe(\.status, options: .new) { [weak self] item, _ in
-            DispatchQueue.main.async {
-                guard let self, item.status == .failed, self.player.currentItem === item else { return }
-                self.error = item.error?.localizedDescription ?? "Playback failed"
-                self.isLoading = false
-            }
-        }
+        itemWatch = [
+            item.publisher(for: \.status).receive(on: DispatchQueue.main).sink { [weak self] status in
+                guard status == .failed else { return }
+                MainActor.assumeIsolated { self?.stopped(item, because: item.error?.localizedDescription ?? "Playback failed") }
+            },
+            NotificationCenter.default.publisher(for: AVPlayerItem.failedToPlayToEndTimeNotification, object: item)
+                .receive(on: DispatchQueue.main).sink { [weak self] note in
+                    let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                    MainActor.assumeIsolated { self?.stopped(item, because: error?.localizedDescription ?? "Playback failed") }
+                },
+            NotificationCenter.default.publisher(for: AVPlayerItem.playbackStalledNotification, object: item)
+                .delay(for: .seconds(10), scheduler: DispatchQueue.main).sink { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
+                        self.stopped(item, because: nil)
+                    }
+                },
+        ]
     }
+
+    private func stopped(_ item: AVPlayerItem, because message: String?) {
+        guard player.currentItem === item else { return }
+        if Date().timeIntervalSince(started) > 60 { restreams = 0 }
+        let position = item.currentTime().seconds
+        restream(at: position.isFinite ? position : 0, because: message)
+    }
+
+    /// Asks the service for the stream again and plays on from `position`. After five tries in a row the
+    /// error shows (a stall has none: the player just keeps waiting).
+    private func restream(at position: Double, because message: String?) {
+        guard current != nil, let reload else { return }
+        guard restreams < 5 else {
+            if let message {
+                error = message
+                isLoading = false
+            }
+            return
+        }
+        restreams += 1
+        start(reload, restreamingAt: position)
+    }
+
 
     public func playPause() {
         isPlaying ? player.pause() : player.play()
