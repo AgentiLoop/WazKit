@@ -36,6 +36,23 @@ public struct PlayerContainer: View {
                 .opacity(controlsVisible ? 1 : 0)
                 .allowsHitTesting(controlsVisible)
                 .animation(.easeInOut(duration: 0.5), value: controlsVisible)
+            // Skip Intro / Skip Recap, while one plays: bottom right, above the controls there, and it
+            // stays up when the controls fade.
+            if let part = controller.skippable {
+                Button { controller.skipPart() } label: {
+                    Text(part.title)
+                        .font(.title3.weight(.medium))
+                        .padding(.horizontal, 24)
+                        .frame(height: 52)
+                        .chrome(in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, zoomed ? 24 : 25)
+                .padding(.bottom, (zoomed ? 24 : 25) + 60 + 12 + 52 + 12)
+            }
         }
         .background(Color.black)
         .onAppear { state.attach(controller.player) }

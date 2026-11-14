@@ -28,13 +28,30 @@ public struct Playback: Sendable {
     /// Where to resume, in seconds (0 to start over; live has none).
     public let resume: Double
     public let isLive: Bool
+    /// The parts that can be skipped (an intro, a recap); the player shows a button while one plays.
+    public let skips: [Skip]
 
-    public init(streamURL: URL, licenseURL: URL, certificateURL: URL, resume: Double, isLive: Bool) {
+    public init(streamURL: URL, licenseURL: URL, certificateURL: URL, resume: Double, isLive: Bool, skips: [Skip] = []) {
         self.streamURL = streamURL
         self.licenseURL = licenseURL
         self.certificateURL = certificateURL
         self.resume = resume
         self.isLive = isLive
+        self.skips = skips
+    }
+}
+
+/// A part of a stream that can be skipped: the button's title ("Skip Intro") and where the part starts
+/// and ends, in seconds.
+public struct Skip: Hashable, Sendable {
+    public let title: String
+    public let start: Double
+    public let end: Double
+
+    public init(title: String, start: Double, end: Double) {
+        self.title = title
+        self.start = start
+        self.end = end
     }
 }
 

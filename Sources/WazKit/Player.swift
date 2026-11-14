@@ -59,6 +59,7 @@ public final class PlayerController: ObservableObject {
             },
         ]
         installRemoteCommands()
+        watchSkips()
     }
 
     private var loadTask: Task<Void, Never>?
@@ -84,6 +85,8 @@ public final class PlayerController: ObservableObject {
     private func start(_ load: @escaping @Sendable () async throws -> Playback, restreamingAt position: Double? = nil) {
         loadTask?.cancel()
         itemWatch = []
+        skips = []
+        skippable = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         isLoading = true
@@ -105,6 +108,7 @@ public final class PlayerController: ObservableObject {
                 playerItem.automaticallyHandlesInterstitialEvents = false
                 watch(playerItem)
                 player.replaceCurrentItem(with: playerItem)
+                skips = playback.skips
                 started = Date()
                 // A restream carries on where the stream stopped; live rejoins at the live edge.
                 var resume = playback.resume
@@ -131,6 +135,8 @@ public final class PlayerController: ObservableObject {
         loadTask = nil
         itemWatch = []
         reload = nil
+        skips = []
+        skippable = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         current = nil
@@ -225,6 +231,30 @@ public final class PlayerController: ObservableObject {
     public func skip(_ seconds: Double) {
         let target = CMTimeAdd(player.currentTime(), CMTime(seconds: seconds, preferredTimescale: 1000))
         player.seek(to: CMTimeMaximum(target, .zero))
+    }
+
+    /// The parts of the current stream that can be skipped (from its `Playback`).
+    private var skips: [Skip] = []
+    /// The skippable part (an intro, a recap) the playhead is in: the players show a button for it.
+    @Published public private(set) var skippable: Skip?
+    private var skipObserver: Any?
+
+    /// Twice a second of playback, and on every seek: is the playhead in a part that can be skipped?
+    private func watchSkips() {
+        skipObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let part = self.skips.first { time.seconds >= $0.start && time.seconds < $0.end }
+                if part != self.skippable { self.skippable = part }
+            }
+        }
+    }
+
+    /// Jumps to the end of the part the playhead is in (what the Skip Intro / Skip Recap button does).
+    public func skipPart() {
+        guard let skippable else { return }
+        player.seek(to: CMTime(seconds: skippable.end, preferredTimescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
+        self.skippable = nil
     }
 
     // MARK: Media keys
