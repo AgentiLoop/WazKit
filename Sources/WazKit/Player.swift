@@ -100,6 +100,9 @@ public final class PlayerController: ObservableObject {
                 let asset = AVURLAsset(url: playback.streamURL)
                 keySession.addContentKeyRecipient(asset)
                 let playerItem = AVPlayerItem(asset: asset)
+                // Disney+ marks its ad breaks as HLS interstitials whose ad list ("app://…") only its own player can
+                // fetch. Left on, AVPlayer parks the buffer at the marker waiting for it and can run dry there.
+                playerItem.automaticallyHandlesInterstitialEvents = false
                 watch(playerItem)
                 player.replaceCurrentItem(with: playerItem)
                 started = Date()
@@ -135,9 +138,14 @@ public final class PlayerController: ObservableObject {
         updateNowPlayingInfo()
     }
 
+    /// Seconds in a row the current stream has not kept up (see `check`).
+    private var starved = 0
+    private var lastTime = 0.0
+
     /// A stream that stops by itself is restreamed: the item failed (bad key, dead stream, network gone),
-    /// or it stalled and was still waiting ten seconds later.
+    /// or it stopped keeping up (checked once a second).
     private func watch(_ item: AVPlayerItem) {
+        starved = 0
         itemWatch = [
             item.publisher(for: \.status).receive(on: DispatchQueue.main).sink { [weak self] status in
                 guard status == .failed else { return }
@@ -148,15 +156,33 @@ public final class PlayerController: ObservableObject {
                     let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                     MainActor.assumeIsolated { self?.stopped(item, because: error?.localizedDescription ?? "Playback failed") }
                 },
-            NotificationCenter.default.publisher(for: AVPlayerItem.playbackStalledNotification, object: item)
-                .delay(for: .seconds(10), scheduler: DispatchQueue.main).sink { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        guard let self, self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
-                        self.stopped(item, because: nil)
-                    }
-                },
+            Timer.publish(every: 1, on: .main, in: .common).autoconnect().sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.check(item) }
+            },
         ]
     }
+
+    /// Is the stream keeping up? AVPlayer can say it is playing with nothing coming out: its clock runs on
+    /// past the end of what it has loaded, and no stall is ever posted. So this looks at the buffer itself:
+    /// wanting to play for ten seconds in a row with nothing loaded ahead of the playhead, or with the
+    /// playhead not moving, is a stopped stream.
+    private func check(_ item: AVPlayerItem) {
+        guard player.currentItem === item, player.timeControlStatus != .paused else {
+            starved = 0
+            return
+        }
+        let time = item.currentTime()
+        let loaded = item.loadedTimeRanges.map(\.timeRangeValue).first { $0.containsTime(time) }
+        let ahead = loaded.map { $0.end.seconds - time.seconds } ?? 0
+        let moved = time.seconds != lastTime
+        lastTime = time.seconds
+        starved = ahead > 0 && moved ? 0 : starved + 1
+        if starved >= 10 {
+            starved = 0
+            stopped(item, because: nil)
+        }
+    }
+
 
     private func stopped(_ item: AVPlayerItem, because message: String?) {
         guard player.currentItem === item else { return }
