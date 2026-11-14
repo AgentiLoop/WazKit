@@ -30,14 +30,19 @@ public struct Playback: Sendable {
     public let isLive: Bool
     /// The parts that can be skipped (an intro, a recap); the player shows a button while one plays.
     public let skips: [Skip]
+    /// More parts to skip that take a while to find (a studio logo found by reading the thumbnails, say).
+    /// The player asks once the stream is playing and shows their buttons when the answer arrives.
+    public let findSkips: (@Sendable () async -> [Skip])?
 
-    public init(streamURL: URL, licenseURL: URL, certificateURL: URL, resume: Double, isLive: Bool, skips: [Skip] = []) {
+    public init(streamURL: URL, licenseURL: URL, certificateURL: URL, resume: Double, isLive: Bool, skips: [Skip] = [],
+                findSkips: (@Sendable () async -> [Skip])? = nil) {
         self.streamURL = streamURL
         self.licenseURL = licenseURL
         self.certificateURL = certificateURL
         self.resume = resume
         self.isLive = isLive
         self.skips = skips
+        self.findSkips = findSkips
     }
 }
 

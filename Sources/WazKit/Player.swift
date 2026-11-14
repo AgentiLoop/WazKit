@@ -92,6 +92,7 @@ public final class PlayerController: ObservableObject {
         isLoading = true
         error = nil
         loadTask = Task {
+            var findSkips: (@Sendable () async -> [Skip])?
             do {
                 // The first restream is immediate; the next ones give the network a little longer each time.
                 if restreams > 1 { try await Task.sleep(for: .seconds(5 * (restreams - 1))) }
@@ -109,6 +110,7 @@ public final class PlayerController: ObservableObject {
                 watch(playerItem)
                 player.replaceCurrentItem(with: playerItem)
                 skips = playback.skips
+                findSkips = playback.findSkips
                 started = Date()
                 // A restream carries on where the stream stopped; live rejoins at the live edge.
                 var resume = playback.resume
@@ -127,6 +129,12 @@ public final class PlayerController: ObservableObject {
                 current = nil
             }
             isLoading = false
+            // The stream is playing; the parts that take a while to find join the others when they are found
+            // (this task is cancelled when the stream is stopped or replaced).
+            if let findSkips {
+                let found = await findSkips()
+                if !Task.isCancelled { skips += found }
+            }
         }
     }
 
