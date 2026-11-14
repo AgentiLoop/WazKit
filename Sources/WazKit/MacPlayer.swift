@@ -18,7 +18,9 @@ import Combine
 public struct PlayerContainer: View {
     @ObservedObject var controller: PlayerController
     @StateObject private var state = PlaybackState()
-    @State private var zoom = Zoom.fit
+    /// Remembered between launches, like the pinch on top of it (VideoLayerView) and the volume, speed,
+    /// audio and subtitles (PlaybackState).
+    @AppStorage("playerZoom") private var zoom = Zoom.fit
     private var zoomed: Bool { zoom != .fit }
     @State private var controlsVisible = true
     @State private var lastActivity = Date()
@@ -362,6 +364,20 @@ final class PlaybackState: ObservableObject {
             let audio = try? await asset.loadMediaSelectionGroup(for: .audible)
             let text = try? await asset.loadMediaSelectionGroup(for: .legible)
             guard player?.currentItem === item else { return }
+            // The audio and subtitles picked before (saved by name in `select`; "" is subtitles off) are
+            // picked again in every stream that offers them.
+            let defaults = UserDefaults.standard
+            if let audio, let name = defaults.string(forKey: "playerAudio"),
+               let option = audio.options.first(where: { $0.displayName == name }) {
+                item.select(option, in: audio)
+            }
+            if let text, let name = defaults.string(forKey: "playerSubtitles") {
+                if name.isEmpty {
+                    item.select(nil, in: text)
+                } else if let option = text.options.first(where: { $0.displayName == name }) {
+                    item.select(option, in: text)
+                }
+            }
             audible = audio.map { Group(group: $0, options: $0.options, selected: item.currentMediaSelection.selectedMediaOption(in: $0)) }
             // Forced subtitles (foreign-language parts) aren't a choice.
             legible = text.map { group in
@@ -373,20 +389,28 @@ final class PlaybackState: ObservableObject {
 
     func select(_ option: AVMediaSelectionOption?, in group: Group, on player: AVPlayer) {
         player.currentItem?.select(option, in: group.group)
-        if audible?.group == group.group { audible?.selected = option }
-        if legible?.group == group.group { legible?.selected = option }
+        if audible?.group == group.group {
+            audible?.selected = option
+            UserDefaults.standard.set(option?.displayName, forKey: "playerAudio")
+        }
+        if legible?.group == group.group {
+            legible?.selected = option
+            UserDefaults.standard.set(option?.displayName ?? "", forKey: "playerSubtitles")
+        }
     }
 
     func setVolume(_ value: Float, on player: AVPlayer) {
         player.volume = value
         player.isMuted = false
         volume = value
+        UserDefaults.standard.set(value, forKey: "playerVolume")
     }
 
     func setRate(_ value: Float, on player: AVPlayer) {
         player.defaultRate = value
         if player.rate > 0 { player.rate = value }
         rate = value
+        UserDefaults.standard.set(value, forKey: "playerRate")
     }
 
     func toggleFullScreen() { view?.window?.toggleFullScreen(nil) }
@@ -399,7 +423,8 @@ final class PlaybackState: ObservableObject {
 
 /// How the picture sits in the window: the whole movie, filling the window, or filling it with the
 /// movie's 2.39:1 cinema band (for wide films delivered with black bars inside a 16:9 video).
-enum Zoom {
+/// The raw value is what is saved between launches.
+enum Zoom: String {
     case fit, fill, cinema
 
     var next: Zoom {
@@ -439,7 +464,7 @@ private struct PlayerLayerView: NSViewRepresentable {
     let onKey: (NSEvent) -> Bool
 
     func makeNSView(context: Context) -> VideoLayerView {
-        let view = VideoLayerView()
+        let view = VideoLayerView(zoom: zoom)
         view.playerLayer.player = player
         view.state = state
         state.view = view
@@ -466,11 +491,16 @@ final class VideoLayerView: NSView {
     var zoom = Zoom.fit {
         didSet { if zoom != oldValue { pinch = 1; applyZoom(animated: true) } }
     }
-    /// Pinch (or +/−) on top of the level, 1…4×.
-    private var pinch: CGFloat = 1
+    /// Pinch (or +/−) on top of the level, 1…4×; remembered between launches.
+    private var pinch: CGFloat = 1 {
+        didSet { UserDefaults.standard.set(Double(pinch), forKey: "playerPinch") }
+    }
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    /// Starts at the remembered zoom: `zoom` is the level, and the pinch on top of it is read back here.
+    init(zoom: Zoom) {
+        self.zoom = zoom
+        pinch = min(max(UserDefaults.standard.double(forKey: "playerPinch"), 1), 4)
+        super.init(frame: .zero)
         wantsLayer = true
         // The video is a sublayer so it can be scaled past the view's edges (the view clips it).
         let root = CALayer()

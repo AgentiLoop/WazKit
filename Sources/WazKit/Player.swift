@@ -60,6 +60,12 @@ public final class PlayerController: ObservableObject {
         ]
         installRemoteCommands()
         watchSkips()
+        #if os(macOS)
+        // The volume and speed set in the Mac player (PlaybackState saves them) carry over to the next launch.
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "playerVolume") != nil { player.volume = defaults.float(forKey: "playerVolume") }
+        if defaults.float(forKey: "playerRate") > 0 { player.defaultRate = defaults.float(forKey: "playerRate") }
+        #endif
     }
 
     private var loadTask: Task<Void, Never>?
