@@ -46,7 +46,7 @@ public struct PlayerView: View {
                 #if os(macOS)
                 PlayerContainer(controller: player)
                 #else
-                VideoPlayerView(player: player.player, onClose: onClose)
+                VideoPlayerView(player: player.player, onClose: onClose, closesAtEnd: player.onEnd == nil)
                 #endif
             }
         }
@@ -56,14 +56,17 @@ public struct PlayerView: View {
 
 #if os(iOS)
 /// On iPhone the movie starts in AVKit's own full screen; its ✕ (closing full screen) calls `onClose`.
-/// Leaving full screen for Picture in Picture does not.
+/// Leaving full screen for Picture in Picture does not. `closesAtEnd`: AVKit leaves full screen when the
+/// movie ends (off for an app that plays the next thing then, and closes the player itself).
 public struct VideoPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
     let onClose: (() -> Void)?
+    let closesAtEnd: Bool
 
-    public init(player: AVPlayer, onClose: (() -> Void)? = nil) {
+    public init(player: AVPlayer, onClose: (() -> Void)? = nil, closesAtEnd: Bool = true) {
         self.player = player
         self.onClose = onClose
+        self.closesAtEnd = closesAtEnd
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(onClose: onClose) }
@@ -75,7 +78,7 @@ public struct VideoPlayerView: UIViewControllerRepresentable {
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         controller.entersFullScreenWhenPlaybackBegins = onClose != nil
-        controller.exitsFullScreenWhenPlaybackEnds = true
+        controller.exitsFullScreenWhenPlaybackEnds = closesAtEnd
         return controller
     }
 

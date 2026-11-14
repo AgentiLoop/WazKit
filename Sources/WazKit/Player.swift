@@ -142,8 +142,12 @@ public final class PlayerController: ObservableObject {
     private var starved = 0
     private var lastTime = 0.0
 
+    /// Called when what is playing reaches its end. The app plays the next thing or stops; an app that
+    /// sets this also closes the iPhone's full-screen player itself (see `VideoPlayerView`).
+    public var onEnd: (() -> Void)?
+
     /// A stream that stops by itself is restreamed: the item failed (bad key, dead stream, network gone),
-    /// or it stopped keeping up (checked once a second).
+    /// or it stopped keeping up (checked once a second). One that plays to its end calls `onEnd`.
     private func watch(_ item: AVPlayerItem) {
         starved = 0
         itemWatch = [
@@ -155,6 +159,13 @@ public final class PlayerController: ObservableObject {
                 .receive(on: DispatchQueue.main).sink { [weak self] note in
                     let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                     MainActor.assumeIsolated { self?.stopped(item, because: error?.localizedDescription ?? "Playback failed") }
+                },
+            NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification, object: item)
+                .receive(on: DispatchQueue.main).sink { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, self.player.currentItem === item else { return }
+                        self.onEnd?()
+                    }
                 },
             Timer.publish(every: 1, on: .main, in: .common).autoconnect().sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.check(item) }
