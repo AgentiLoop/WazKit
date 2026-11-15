@@ -5,8 +5,8 @@
 //  A TV guide to live television: the channels down the side, the next hours across, and each
 //  channel's programmes as cells as wide as they are long. The channel column stays put while the
 //  guide scrolls sideways and the times stay put while it scrolls down. What is on now is tinted and
-//  plays with a click; a red line marks the time. The apps say where the listings come from, how a
-//  channel's logo is drawn and what playing a programme means.
+//  plays with a click; a red line marks the time. The apps say where the listings come from and what
+//  playing a programme means.
 //
 
 import SwiftUI
@@ -16,7 +16,7 @@ import Combine
 public struct GuideChannel: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String
-    /// Nil shows the channel's name instead.
+    /// The logo's image (a PNG with a clear background); nil shows the channel's name instead.
     public let logo: URL?
     public var programs: [GuideProgram]
 
@@ -47,12 +47,11 @@ public struct GuideProgram: Identifiable, Hashable, Sendable {
 /// The guide with its loading: it asks for the listings from the half hour that is running, shows a
 /// spinner only until the first answer, and asks again when the next half hour starts. The search
 /// text keeps the channels whose name or programmes match.
-public struct GuideView<Logo: View>: View {
+public struct GuideView: View {
     @ObservedObject var search: LiveSearch
     let hours: Int
     let tint: Color
     let load: (_ start: Date, _ end: Date) async throws -> [GuideChannel]
-    let logo: (GuideChannel) -> Logo
     let onSelect: (GuideChannel, GuideProgram) -> Void
     @State private var channels: [GuideChannel]?
     @State private var error: String?
@@ -62,17 +61,14 @@ public struct GuideView<Logo: View>: View {
     ///   - hours: How far ahead the guide goes.
     ///   - tint: The colour of what is on now.
     ///   - load: The channels with what they air between the two times.
-    ///   - logo: A channel's logo (asked only for channels that have one).
     ///   - onSelect: A click on a programme that is on now.
     public init(search: LiveSearch, hours: Int = 6, tint: Color = .blue,
                 load: @escaping (_ start: Date, _ end: Date) async throws -> [GuideChannel],
-                @ViewBuilder logo: @escaping (GuideChannel) -> Logo,
                 onSelect: @escaping (GuideChannel, GuideProgram) -> Void) {
         self.search = search
         self.hours = hours
         self.tint = tint
         self.load = load
-        self.logo = logo
         self.onSelect = onSelect
     }
 
@@ -95,7 +91,7 @@ public struct GuideView<Logo: View>: View {
         Group {
             if channels != nil {
                 if !filtered.isEmpty {
-                    GuideGrid(channels: filtered, start: start, hours: hours, now: now, tint: tint, logo: logo, onSelect: onSelect)
+                    GuideGrid(channels: filtered, start: start, hours: hours, now: now, tint: tint, onSelect: onSelect)
                 } else if search.text.trimmingCharacters(in: .whitespaces).isEmpty {
                     ContentUnavailableView("Nothing On Right Now", systemImage: "tv")
                 } else {
@@ -124,13 +120,12 @@ public struct GuideView<Logo: View>: View {
 /// The grid itself: one scroll view for both directions, with the times pinned to its top (a pinned
 /// section header) and the channel column pinned to its leading edge (moved back by however far the
 /// row has scrolled).
-struct GuideGrid<Logo: View>: View {
+struct GuideGrid: View {
     let channels: [GuideChannel]
     let start: Date
     let hours: Int
     let now: Date
     let tint: Color
-    let logo: (GuideChannel) -> Logo
     let onSelect: (GuideChannel, GuideProgram) -> Void
 
     #if os(macOS)
@@ -192,8 +187,8 @@ struct GuideGrid<Logo: View>: View {
         // The services' logos are drawn for a dark page, so the plate is dark in light mode too.
         ZStack {
             Color(white: 0.13)
-            if channel.logo != nil {
-                logo(channel).padding(.horizontal, 14).padding(.vertical, 12)
+            if let logo = channel.logo {
+                ChannelLogo(url: logo).padding(.horizontal, 14).padding(.vertical, 12)
             } else {
                 Text(channel.name).font(.caption.bold()).foregroundStyle(.white)
                     .multilineTextAlignment(.center).lineLimit(2).padding(.horizontal, 8)
@@ -242,6 +237,37 @@ struct GuideGrid<Logo: View>: View {
             }
         }
         .frame(width: width, height: row, alignment: .topLeading)
+    }
+}
+
+/// A channel's logo, fitted. An image server can answer a size it has not made yet with something that
+/// is not an image (img.hulu.com: 200 "Submitted for processing", which URLCache would keep for 30 days),
+/// so that answer is dropped and the logo asked for again until the image is there.
+public struct ChannelLogo: View {
+    let url: URL?
+    @State private var image: PlatformImage?
+
+    public init(url: URL?) { self.url = url }
+
+    public var body: some View {
+        Group {
+            if let image {
+                Image(platformImage: image).resizable().aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "tv")
+            }
+        }
+        .task(id: url) {
+            guard let url else { return }
+            let request = URLRequest(url: url)
+            for _ in 0..<5 {
+                if let (data, _) = try? await URLSession.shared.data(for: request) {
+                    if let loaded = PlatformImage(data: data) { image = loaded; return }
+                    URLCache.shared.removeCachedResponse(for: request)
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
     }
 }
 
