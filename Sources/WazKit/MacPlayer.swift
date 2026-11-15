@@ -83,7 +83,7 @@ public struct PlayerContainer: View {
     private var controls: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                circle("xmark", help: "Stop") { controller.stop() }
+                circle("xmark", help: "Close") { controller.close() }
                 capsule {
                     button(state.pictureInPicture ? "pip.exit" : "pip.enter", help: "Picture in Picture") { state.togglePictureInPicture() }
                         .disabled(!state.canPictureInPicture)

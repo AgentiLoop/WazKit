@@ -84,6 +84,7 @@ public final class PlayerController: ObservableObject {
         current = what
         reload = load
         restreams = 0
+        held = false
         start(load)
     }
 
@@ -124,7 +125,7 @@ public final class PlayerController: ObservableObject {
                 if resume > 0 {
                     player.seek(to: CMTime(seconds: resume, preferredTimescale: 1000), completionHandler: { _ in })
                 }
-                player.play()
+                if !held { player.play() }
             } catch {
                 if Task.isCancelled { return }
                 if let position {
@@ -239,7 +240,27 @@ public final class PlayerController: ObservableObject {
 
 
     public func playPause() {
+        held = false
         isPlaying ? player.pause() : player.play()
+    }
+
+    /// Paused with `pause()`: a stream that finishes loading, or is restreamed, meanwhile stays paused.
+    private var held = false
+
+    /// Pauses and stays paused until something plays again. A stream still loading does not start when it
+    /// arrives, and a paused stream that goes stale and is restreamed (live does) does not start by itself.
+    public func pause() {
+        held = true
+        player.pause()
+    }
+
+    /// What the player's ✕ does, when the app has its own idea (going back to where the stream was picked,
+    /// say); without it the ✕ stops.
+    public var onClose: (() -> Void)?
+
+    /// The player's ✕.
+    public func close() {
+        if let onClose { onClose() } else { stop() }
     }
 
     public func skip(_ seconds: Double) {
@@ -275,7 +296,7 @@ public final class PlayerController: ObservableObject {
 
     private func installRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in self?.player.play(); return .success }
+        center.playCommand.addTarget { [weak self] _ in self?.held = false; self?.player.play(); return .success }
         center.pauseCommand.addTarget { [weak self] _ in self?.player.pause(); return .success }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.playPause(); return .success }
         center.skipForwardCommand.preferredIntervals = [10]

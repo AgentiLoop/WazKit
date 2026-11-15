@@ -46,11 +46,13 @@ public struct GuideProgram: Identifiable, Hashable, Sendable {
 
 /// The guide with its loading: it asks for the listings from the half hour that is running, shows a
 /// spinner only until the first answer, and asks again when the next half hour starts. The search
-/// text keeps the channels whose name or programmes match.
+/// text keeps the channels whose name or programmes match. The channel that is playing (or was last)
+/// is highlighted, and the guide opens scrolled to it.
 public struct GuideView: View {
     @ObservedObject var search: LiveSearch
     let hours: Int
     let tint: Color
+    let playing: String?
     let load: (_ start: Date, _ end: Date) async throws -> [GuideChannel]
     let onSelect: (GuideChannel, GuideProgram) -> Void
     @State private var channels: [GuideChannel]?
@@ -60,14 +62,16 @@ public struct GuideView: View {
     /// - Parameters:
     ///   - hours: How far ahead the guide goes.
     ///   - tint: The colour of what is on now.
+    ///   - playing: The id of the channel to highlight and to open the guide at.
     ///   - load: The channels with what they air between the two times.
     ///   - onSelect: A click on a programme that is on now.
-    public init(search: LiveSearch, hours: Int = 6, tint: Color = .blue,
+    public init(search: LiveSearch, hours: Int = 6, tint: Color = .blue, playing: String? = nil,
                 load: @escaping (_ start: Date, _ end: Date) async throws -> [GuideChannel],
                 onSelect: @escaping (GuideChannel, GuideProgram) -> Void) {
         self.search = search
         self.hours = hours
         self.tint = tint
+        self.playing = playing
         self.load = load
         self.onSelect = onSelect
     }
@@ -91,7 +95,7 @@ public struct GuideView: View {
         Group {
             if channels != nil {
                 if !filtered.isEmpty {
-                    GuideGrid(channels: filtered, start: start, hours: hours, now: now, tint: tint, onSelect: onSelect)
+                    GuideGrid(channels: filtered, start: start, hours: hours, now: now, tint: tint, playing: playing, onSelect: onSelect)
                 } else if search.text.trimmingCharacters(in: .whitespaces).isEmpty {
                     ContentUnavailableView("Nothing On Right Now", systemImage: "tv")
                 } else {
@@ -126,6 +130,7 @@ struct GuideGrid: View {
     let hours: Int
     let now: Date
     let tint: Color
+    let playing: String?
     let onSelect: (GuideChannel, GuideProgram) -> Void
 
     #if os(macOS)
@@ -142,22 +147,30 @@ struct GuideGrid: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView([.horizontal, .vertical]) {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    Section {
-                        ForEach(channels) { channel in
-                            HStack(spacing: 0) {
-                                channelCell(channel).pinnedLeading().zIndex(1)
-                                programs(channel)
+            ScrollViewReader { proxy in
+                ScrollView([.horizontal, .vertical]) {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        Section {
+                            ForEach(channels) { channel in
+                                HStack(spacing: 0) {
+                                    channelCell(channel).pinnedLeading().zIndex(1)
+                                    programs(channel)
+                                }
                             }
+                        } header: {
+                            times
                         }
-                    } header: {
-                        times
                     }
+                    .frame(width: side + width, alignment: .leading)
+                    // A guide smaller than the window starts at its top left corner, not in its middle.
+                    .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
                 }
-                .frame(width: side + width, alignment: .leading)
-                // A guide smaller than the window starts at its top left corner, not in its middle.
-                .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
+                // The guide opens at the channel that is playing: its row half way down, the guide's left
+                // edge (now) where it was.
+                .onAppear {
+                    guard let playing, channels.contains(where: { $0.id == playing }) else { return }
+                    DispatchQueue.main.async { proxy.scrollTo(playing, anchor: UnitPoint(x: 0, y: 0.5)) }
+                }
             }
         }
     }
@@ -196,19 +209,25 @@ struct GuideGrid: View {
         }
         .frame(width: side - 4, height: row - 4)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            if channel.id == playing { RoundedRectangle(cornerRadius: 8).strokeBorder(tint, lineWidth: 3) }
+        }
         .frame(width: side, height: row)
         .background(.background)
         .help(channel.name)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(channel.name)
+        .accessibilityAddTraits(channel.id == playing ? .isSelected : [])
     }
 
-    /// A channel's programmes, each from its start to its end (cut off at the guide's edges).
+    /// A channel's programmes, each from its start to its end (cut off at the guide's edges). On the
+    /// channel that is playing, what is on now is filled in and outlined.
     private func programs(_ channel: GuideChannel) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(channel.programs.filter { $0.end > start && $0.start < end }) { program in
                 let from = max(x(program.start), 0), to = min(x(program.end), width)
                 let airing = program.start <= now && now < program.end
+                let highlighted = airing && channel.id == playing
                 Button {
                     onSelect(channel, program)
                 } label: {
@@ -222,13 +241,17 @@ struct GuideGrid: View {
                     }
                     .padding(.horizontal, 10)
                     .frame(width: max(to - from - 4, 0), height: row - 4, alignment: .leading)
-                    .background(airing ? AnyShapeStyle(tint.opacity(0.3)) : AnyShapeStyle(.quaternary.opacity(0.5)),
+                    .background(airing ? AnyShapeStyle(tint.opacity(highlighted ? 0.6 : 0.3)) : AnyShapeStyle(.quaternary.opacity(0.5)),
                                 in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        if highlighted { RoundedRectangle(cornerRadius: 8).strokeBorder(tint, lineWidth: 3) }
+                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!airing)
                 .help(airing ? "Watch \(program.title) on \(channel.name)" : program.title)
+                .accessibilityAddTraits(highlighted ? .isSelected : [])
                 .offset(x: from + 2, y: 2)
             }
             if now >= start && now < end {
