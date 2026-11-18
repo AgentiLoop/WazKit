@@ -153,3 +153,60 @@ struct AVKitPlayer: UIViewControllerRepresentable {
     }
 }
 #endif
+
+#if os(tvOS)
+/// On Apple TV the movie fills the screen in AVKit's player. The remote's Back (Menu) button, once AVKit's
+/// controls are hidden, calls `onClose`. `skip` shows as AVKit's own contextual action button
+/// (bottom right, focusable with the remote), the tvOS way to offer "Skip Intro"; selecting it calls `onSkip`.
+public struct VideoPlayerView: View {
+    let player: AVPlayer
+    let onClose: (() -> Void)?
+    let closesAtEnd: Bool
+    let skip: String?
+    let onSkip: (() -> Void)?
+
+    public init(player: AVPlayer, onClose: (() -> Void)? = nil, closesAtEnd: Bool = true,
+                skip: String? = nil, onSkip: (() -> Void)? = nil) {
+        self.player = player
+        self.onClose = onClose
+        self.closesAtEnd = closesAtEnd
+        self.skip = skip
+        self.onSkip = onSkip
+    }
+
+    public var body: some View {
+        TVPlayer(player: player, skip: skip, onSkip: onSkip)
+            .ignoresSafeArea()
+            .onExitCommand { onClose?() }
+    }
+}
+
+/// AVKit's player (AVPlayerViewController) with the skip button as a contextual action.
+struct TVPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+    let skip: String?
+    let onSkip: (() -> Void)?
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        update(controller)
+        return controller
+    }
+
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== player { controller.player = player }
+        update(controller)
+    }
+
+    private func update(_ controller: AVPlayerViewController) {
+        guard let skip else {
+            if !controller.contextualActions.isEmpty { controller.contextualActions = [] }
+            return
+        }
+        if controller.contextualActions.first?.title == skip { return }
+        let onSkip = onSkip
+        controller.contextualActions = [UIAction(title: skip) { _ in onSkip?() }]
+    }
+}
+#endif

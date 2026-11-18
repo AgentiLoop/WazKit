@@ -46,7 +46,7 @@ public final class PlayerController: ObservableObject {
         self.service = service
         keys = KeyDelegate(service: service)
         keySession?.setDelegate(keys, queue: DispatchQueue(label: "wazkit.fairplay"))
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // Sound with the ring/silent switch on, and keep playing in the background and in Picture in Picture.
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         #endif

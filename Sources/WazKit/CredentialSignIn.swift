@@ -96,6 +96,8 @@ public struct CredentialSignInView: View {
         .padding(30)
         #if os(macOS)
         .frame(width: 420)
+        #elseif os(tvOS)
+        .frame(maxWidth: 800) // tvOS type is about twice the size: 420 cut the heading off.
         #else
         .frame(maxWidth: 420)
         #endif
@@ -108,13 +110,13 @@ public struct CredentialSignInView: View {
                 Text("\(service.name) emailed a code to \(sentTo).").multilineTextAlignment(.center)
                 TextField("Code", text: $code)
                     .textContentType(.oneTimeCode)
-                    #if os(iOS)
+                    #if os(iOS) || os(tvOS)
                     .keyboardType(.numberPad)
                     #endif
                     .onSubmit { Task { await verifyCode() } }
                 Button("Continue") { Task { await verifyCode() } }
                     .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+                    .defaultActionShortcut()
                     .disabled(code.isEmpty)
                 Button("Use a Different Email") { codeSentTo = nil }
                     .buttonStyle(.borderless)
@@ -122,14 +124,14 @@ public struct CredentialSignInView: View {
                 passwordFields
             }
         }
-        .textFieldStyle(.roundedBorder)
+        .roundedFields()
     }
 
     private var passwordFields: some View {
         VStack(spacing: 12) {
             TextField("Email", text: $email)
                 .textContentType(.username)
-                #if os(iOS)
+                #if os(iOS) || os(tvOS)
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -139,10 +141,10 @@ public struct CredentialSignInView: View {
                 .onSubmit { Task { await signIn() } }
             Button("Sign In") { Task { await signIn() } }
                 .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+                .defaultActionShortcut()
                 .disabled(email.isEmpty || password.isEmpty)
         }
-        .textFieldStyle(.roundedBorder)
+        .roundedFields()
     }
 
     private func profiles(_ profiles: [SignInProfile]) -> some View {
@@ -167,11 +169,11 @@ public struct CredentialSignInView: View {
             if let pinFor {
                 HStack {
                     SecureField("PIN for \(pinFor.name)", text: $pin)
-                        .textFieldStyle(.roundedBorder)
+                        .roundedFields()
                         .onSubmit { Task { await pick(pinFor, pin: pin) } }
                     Button("Continue") { Task { await pick(pinFor, pin: pin) } }
                         .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.defaultAction)
+                        .defaultActionShortcut()
                         .disabled(pin.isEmpty)
                 }
             }

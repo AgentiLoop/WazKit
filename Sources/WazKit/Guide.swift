@@ -179,7 +179,7 @@ struct GuideGrid: View {
         HStack(spacing: 0) {
             Text("Today").font(.caption.bold()).foregroundStyle(.secondary)
                 .frame(width: side, height: ruler)
-                .background(.bar)
+                .barBackground()
                 .pinnedLeading().zIndex(1)
             HStack(spacing: 0) {
                 ForEach(0..<hours * 2, id: \.self) { slot in
@@ -193,7 +193,7 @@ struct GuideGrid: View {
                 Circle().fill(.red).frame(width: 8, height: 8).offset(x: x(now) - 4)
             }
         }
-        .background(.bar)
+        .barBackground()
     }
 
     private func channelCell(_ channel: GuideChannel) -> some View {

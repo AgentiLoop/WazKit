@@ -8,6 +8,7 @@
 //  that change state without navigating.
 //
 
+#if !os(tvOS) // Apple TV has no WebKit: website sign-in is iPhone, iPad and Mac only.
 import SwiftUI
 import WebKit
 
@@ -125,3 +126,4 @@ private struct SignInWebView: WebViewRepresentable {
         deinit { check?.cancel() }
     }
 }
+#endif
