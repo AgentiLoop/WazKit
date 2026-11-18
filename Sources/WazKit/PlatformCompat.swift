@@ -27,6 +27,26 @@ extension View {
         #endif
     }
 
+    /// Buttons whose label is artwork with text under it (tiles, the Play hero). On Apple TV `.plain` puts a
+    /// white platter behind the whole label; `.borderless` lets the artwork (`tileFocusEffect`) lift on focus
+    /// with the title left under it, as the TV app does.
+    @ViewBuilder public func tileButtonStyle() -> some View {
+        #if os(tvOS)
+        buttonStyle(.borderless)
+        #else
+        buttonStyle(.plain)
+        #endif
+    }
+
+    /// The part of a `tileButtonStyle` button that lifts and shines on Apple TV when focused.
+    @ViewBuilder public func tileFocusEffect() -> some View {
+        #if os(tvOS)
+        hoverEffect(.highlight)
+        #else
+        self
+        #endif
+    }
+
     /// The toolbar-style backdrop; Apple TV has no bar material.
     @ViewBuilder public func barBackground() -> some View {
         #if os(tvOS)

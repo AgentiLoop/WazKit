@@ -54,6 +54,7 @@ public struct TileCard<Menu: View>: View {
                         Text("LIVE").font(.caption2.bold()).padding(4).background(.red, in: RoundedRectangle(cornerRadius: 3)).padding(6)
                     }
                 }
+                .tileFocusEffect()
                 Text(tile.title).font(.callout.bold()).lineLimit(1)
                 if let subtitle = tile.subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -61,7 +62,7 @@ public struct TileCard<Menu: View>: View {
             }
             .frame(width: size.width)
         }
-        .buttonStyle(.plain)
+        .tileButtonStyle()
         .help(tile.description ?? tile.title)
         .contextMenu(menuItems: menu)
     }
